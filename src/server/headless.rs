@@ -163,13 +163,6 @@ fn dirty_patch_intersects_hyperlinks(
     false
 }
 
-fn dirty_patch_contains_plain_url_candidate(patch: &crate::pane::TerminalDirtyPatch) -> bool {
-    patch.rows.iter().any(|(_, row_cells)| {
-        let row: String = row_cells.iter().map(|cell| cell.symbol.as_str()).collect();
-        !crate::app::actions::visible_url_spans(&row).is_empty()
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -3215,9 +3208,6 @@ impl HeadlessServer {
                     if dirty_patch_intersects_hyperlinks(&frame, info.inner_rect, &patch) {
                         retained_fallback!("hyperlink_intersection");
                     }
-                    if dirty_patch_contains_plain_url_candidate(&patch) {
-                        retained_fallback!("plain_url_candidate");
-                    }
                     if !apply_terminal_dirty_patch(&mut frame, info.inner_rect, patch) {
                         retained_fallback!("patch_apply_failed");
                     }
@@ -3394,7 +3384,6 @@ impl HeadlessServer {
                     let hyperlinks = crate::server::render_stream::visible_hyperlinks(
                         &self.app.state,
                         &self.app.terminal_runtimes,
-                        Some(&buffer),
                     );
                     crate::render_prof::duration_since(
                         "full_render.visible_hyperlinks",
@@ -3728,7 +3717,7 @@ impl HeadlessServer {
             .session_save_deadline
             .is_some_and(|deadline| now >= deadline)
         {
-            self.app.save_session_now();
+            self.app.start_background_session_save();
         }
 
         if let Some(deadline) = self
@@ -7536,7 +7525,7 @@ next_tab = ""
     }
 
     #[tokio::test]
-    async fn retained_pty_update_declines_when_dirty_row_creates_plain_url() {
+    async fn retained_pty_update_allows_dirty_row_that_creates_plain_url() {
         let (mut server, client_rx, pane_id) = retained_test_server(b"plain");
         server.render_and_stream();
         let _ = client_rx
@@ -7550,20 +7539,15 @@ next_tab = ""
             .expect("runtime");
         runtime.test_process_pty_bytes(b"\rhttps://example.com/new");
 
-        assert!(!server.render_retained_pty_update_and_stream());
-        assert!(client_rx.recv_timeout(Duration::from_millis(50)).is_err());
-
-        server.render_and_stream();
-        let full = read_server_frame(
+        assert!(server.render_retained_pty_update_and_stream());
+        let patched = read_server_frame(
             client_rx
                 .recv_timeout(Duration::from_millis(100))
-                .expect("full frame after plain URL"),
+                .expect("retained frame after plain URL"),
         );
         assert!(
-            full.hyperlinks
-                .iter()
-                .any(|uri| uri == "https://example.com/new"),
-            "full render should synthesize plain URL hyperlink metadata"
+            patched.hyperlinks.is_empty(),
+            "retained render should not synthesize plain URL hyperlink metadata"
         );
     }
 
