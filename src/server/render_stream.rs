@@ -384,22 +384,7 @@ pub(crate) fn visible_hyperlinks(
     app_state: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Vec<((u16, u16), String, String)> {
-    let Some(ws_idx) = app_state.active else {
-        return Vec::new();
-    };
-    if app_state.workspaces.get(ws_idx).is_none() {
-        return Vec::new();
-    }
-
-    let mut links = Vec::new();
-    for info in &app_state.view.pane_infos {
-        if let Some(runtime) =
-            app_state.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
-        {
-            links.extend(runtime.visible_hyperlinks(info.inner_rect));
-        }
-    }
-    links
+    crate::ui::tab_surface_hyperlinks(app_state, terminal_runtimes, app_state.view.tab_surface())
 }
 /// The pane info that owns the host cursor: the focused floating pane (drawn
 /// on top) when one is focused, otherwise the focused tiled pane. Both the TUI
