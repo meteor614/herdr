@@ -437,7 +437,6 @@ pub struct KeysConfig {
     #[serde(alias = "fullscreen")]
     pub zoom: BindingConfig,
     /// Toggle a floating pane. Default: "prefix+f"
-    #[serde(alias = "new_floating_pane", alias = "toggle_floating_focus")]
     pub toggle_floating_pane: BindingConfig,
     /// Enter resize mode. Default: "prefix+r"
     pub resize_mode: BindingConfig,
@@ -569,11 +568,7 @@ pub(crate) struct KeysConfigOverlay {
     close_pane: Option<BindingConfig>,
     #[serde(alias = "fullscreen", skip_serializing_if = "Option::is_none")]
     zoom: Option<BindingConfig>,
-    #[serde(
-        alias = "new_floating_pane",
-        alias = "toggle_floating_focus",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     toggle_floating_pane: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     resize_mode: Option<BindingConfig>,

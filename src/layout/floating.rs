@@ -20,9 +20,6 @@ pub struct FloatingPanePosition {
 }
 
 impl FloatingPanePosition {
-    // Kept for the upcoming floating-pane interaction layer on the
-    // client-rendered shell architecture (upstream #3487 refactor).
-    #[allow(dead_code)]
     pub fn clamp_to_area(self, area: Rect) -> Self {
         let width = self.width.min(area.width);
         let height = self.height.min(area.height);
@@ -80,9 +77,6 @@ pub struct FloatingPanes {
     pub visible: bool,
 }
 
-// Several accessors and the `visible` flag await the floating-pane
-// interaction layer on the client-rendered shell architecture.
-#[allow(dead_code)]
 impl FloatingPanes {
     pub fn is_empty(&self) -> bool {
         self.order.is_empty()
@@ -122,12 +116,6 @@ impl FloatingPanes {
         self.order.push(pane_id);
     }
 
-    /// Clear focus on floating panes (return focus to tiled layout).
-    #[cfg(test)]
-    pub fn clear_focus(&mut self) {
-        self.focused = None;
-    }
-
     /// Hide all floating panes and return focus to tiled layout.
     pub fn hide(&mut self) {
         self.visible = false;
@@ -139,53 +127,6 @@ impl FloatingPanes {
         if let Some(pane_id) = self.order.last().copied() {
             self.visible = true;
             self.focus(pane_id);
-        }
-    }
-
-    /// Move the focused floating pane by a delta in cells.
-    #[cfg(test)]
-    pub fn move_focused(&mut self, dx: i16, dy: i16, area: Rect) -> bool {
-        let Some(focused_id) = self.focused else {
-            return false;
-        };
-        let Some(pos) = self.positions.get_mut(&focused_id) else {
-            return false;
-        };
-        let new_x = (pos.x as i32 + dx as i32).clamp(0, area.width.saturating_sub(1) as i32) as u16;
-        let new_y =
-            (pos.y as i32 + dy as i32).clamp(0, area.height.saturating_sub(1) as i32) as u16;
-        if new_x != pos.x || new_y != pos.y {
-            pos.x = new_x;
-            pos.y = new_y;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Resize the focused floating pane by a delta.
-    #[cfg(test)]
-    pub fn resize_focused(&mut self, dw: i16, dh: i16, area: Rect) -> bool {
-        let Some(focused_id) = self.focused else {
-            return false;
-        };
-        let Some(pos) = self.positions.get_mut(&focused_id) else {
-            return false;
-        };
-        let new_w = (pos.width as i32 + dw as i32).clamp(
-            FloatingPanePosition::MIN_WIDTH as i32,
-            area.width.saturating_sub(pos.x) as i32,
-        ) as u16;
-        let new_h = (pos.height as i32 + dh as i32).clamp(
-            FloatingPanePosition::MIN_HEIGHT as i32,
-            area.height.saturating_sub(pos.y) as i32,
-        ) as u16;
-        if new_w != pos.width || new_h != pos.height {
-            pos.width = new_w;
-            pos.height = new_h;
-            true
-        } else {
-            false
         }
     }
 
@@ -227,7 +168,7 @@ impl FloatingPanes {
                     return None;
                 }
                 let borders = Borders::ALL;
-                let inner_rect = crate::ui::panes::pane_inner_rect(rect, borders);
+                let inner_rect = crate::ui::pane_inner_rect(rect, borders);
                 Some(PaneInfo {
                     id,
                     rect,
@@ -238,45 +179,6 @@ impl FloatingPanes {
                 })
             })
             .collect()
-    }
-
-    /// Check whether any floating pane has focus.
-    #[cfg(test)]
-    pub fn has_focus(&self) -> bool {
-        self.focused.is_some()
-    }
-
-    /// Resize all floating pane terminals to their computed inner rects.
-    pub fn resize_terminals(
-        &self,
-        area: Rect,
-        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
-        app: &crate::app::AppState,
-        ws_idx: usize,
-        cell_size: crate::kitty_graphics::HostCellSize,
-    ) {
-        for info in self.pane_infos(area) {
-            let pane_inner = crate::ui::panes::pane_inner_rect(info.rect, info.borders);
-            if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
-            {
-                let terminal_id = app
-                    .workspaces
-                    .get(ws_idx)
-                    .and_then(|ws| ws.pane_state(info.id))
-                    .map(|ps| &ps.attached_terminal_id);
-                let locked = terminal_id
-                    .as_ref()
-                    .is_some_and(|tid| app.direct_attach_resize_locks.contains(tid));
-                if !locked {
-                    rt.resize(
-                        pane_inner.height,
-                        pane_inner.width,
-                        cell_size.width_px,
-                        cell_size.height_px,
-                    );
-                }
-            }
-        }
     }
 }
 
@@ -351,28 +253,6 @@ mod tests {
         fp.focus(pid(1));
         assert_eq!(fp.order, vec![pid(2), pid(3), pid(1)]);
         assert_eq!(fp.focused, Some(pid(1)));
-    }
-
-    #[test]
-    fn move_focused_clamps_to_area() {
-        let mut fp = FloatingPanes::default();
-        let area = test_area();
-        fp.add(pid(1), area);
-        fp.move_focused(-100, -100, area);
-        let pos = fp.positions[&pid(1)];
-        assert_eq!(pos.x, 0);
-        assert_eq!(pos.y, 0);
-    }
-
-    #[test]
-    fn resize_focused_respects_min_size() {
-        let mut fp = FloatingPanes::default();
-        let area = test_area();
-        fp.add(pid(1), area);
-        fp.resize_focused(-100, -100, area);
-        let pos = fp.positions[&pid(1)];
-        assert_eq!(pos.width, FloatingPanePosition::MIN_WIDTH);
-        assert_eq!(pos.height, FloatingPanePosition::MIN_HEIGHT);
     }
 
     #[test]
@@ -462,15 +342,6 @@ mod tests {
     }
 
     #[test]
-    fn clear_focus_returns_none() {
-        let mut fp = FloatingPanes::default();
-        fp.add(pid(1), test_area());
-        assert!(fp.has_focus());
-        fp.clear_focus();
-        assert!(!fp.has_focus());
-    }
-
-    #[test]
     fn hide_clears_focus_and_visibility() {
         let mut fp = FloatingPanes::default();
         fp.add(pid(1), test_area());
@@ -493,14 +364,6 @@ mod tests {
 
         assert!(fp.visible);
         assert_eq!(fp.focused, Some(pid(1)));
-    }
-
-    #[test]
-    fn has_focus_is_false_when_focused_is_none() {
-        let mut fp = FloatingPanes::default();
-        fp.add(pid(1), test_area());
-        fp.focused = None;
-        assert!(!fp.has_focus());
     }
 
     #[test]

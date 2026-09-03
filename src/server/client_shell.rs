@@ -500,8 +500,16 @@ fn composite_floating_panes(
         }
 
         // Clear the floating pane area so tiled content does not show through.
-        let right = info.rect.x.saturating_add(info.rect.width).min(buffer.area.right());
-        let bottom = info.rect.y.saturating_add(info.rect.height).min(buffer.area.bottom());
+        let right = info
+            .rect
+            .x
+            .saturating_add(info.rect.width)
+            .min(buffer.area.right());
+        let bottom = info
+            .rect
+            .y
+            .saturating_add(info.rect.height)
+            .min(buffer.area.bottom());
         for y in info.rect.y..bottom {
             for x in info.rect.x..right {
                 if let Some(cell) = buffer.cell_mut(ratatui::layout::Position { x, y }) {
@@ -516,21 +524,19 @@ fn composite_floating_panes(
             // The pane cursor is in content-local coordinates; translate it
             // into surface coordinates so the host cursor follows the focused
             // floating pane instead of being suppressed entirely.
-            focused_cursor = runtime.cursor_state(info.inner_rect, true).map(|cursor| {
-                CursorState {
-                    x: cursor.x,
-                    y: cursor.y,
-                    visible: cursor.visible,
-                    shape: cursor.shape,
-                }
-            });
+            focused_cursor =
+                runtime
+                    .cursor_state(info.inner_rect, true)
+                    .map(|cursor| CursorState {
+                        x: cursor.x,
+                        y: cursor.y,
+                        visible: cursor.visible,
+                        shape: cursor.shape,
+                    });
         }
         if borders_enabled {
-            let border_style = ratatui::style::Style::default().fg(if is_focused {
-                accent
-            } else {
-                overlay
-            });
+            let border_style =
+                ratatui::style::Style::default().fg(if is_focused { accent } else { overlay });
             let block = ratatui::widgets::Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
                 .border_style(border_style);
@@ -558,11 +564,13 @@ fn composite_floating_panes(
         let mouse_reporting = runtime.mouse_reporting_enabled();
         let sgr_pixel_mouse = runtime.sgr_pixel_mouse_enabled();
         let alternate_screen_active = runtime.alternate_screen_active();
-        let scroll = runtime.scroll_metrics().map(|metrics| protocol::PaneSurfaceScrollMetrics {
-            offset_from_bottom: metrics.offset_from_bottom as u64,
-            max_offset_from_bottom: metrics.max_offset_from_bottom as u64,
-            viewport_rows: metrics.viewport_rows as u64,
-        });
+        let scroll = runtime
+            .scroll_metrics()
+            .map(|metrics| protocol::PaneSurfaceScrollMetrics {
+                offset_from_bottom: metrics.offset_from_bottom as u64,
+                max_offset_from_bottom: metrics.max_offset_from_bottom as u64,
+                viewport_rows: metrics.viewport_rows as u64,
+            });
         let (pixel_width, pixel_height) = if cell_size.is_known() {
             (
                 u32::from(info.inner_rect.width) * cell_size.width_px,
@@ -737,7 +745,9 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         );
-        app.state.workspaces.push(crate::workspace::Workspace::test_new("ws"));
+        app.state
+            .workspaces
+            .push(crate::workspace::Workspace::test_new("ws"));
         app.state.active = Some(0);
         let tiled_root = app.state.workspaces[0].tabs[0].root_pane;
         let floating_id = app.state.workspaces[0].test_add_floating_pane();

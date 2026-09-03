@@ -3,19 +3,19 @@ use bytes::Bytes;
 use crate::api::schema::{
     EventData, EventEnvelope, EventKind, PaneClearAgentAuthorityParams, PaneCopyMotion,
     PaneCopyMotionParams, PaneCopySearchDirection, PaneCopySearchParams, PaneCurrentParams,
-    PaneDirection, PaneEdgesParams, PaneEdgesResult, PaneFocusDirectionParams,
-    PaneFocusDirectionReason, PaneFocusDirectionResult, PaneInfo, PaneInputSetParams,
-    PaneLayoutPane, PaneLayoutParams, PaneLayoutRect, PaneLayoutSnapshot, PaneLayoutSplit,
-    PaneListParams, PaneMoveDestination, PaneMoveParams, PaneMoveReason, PaneMoveResult,
-    PaneFloatingFocusParams, PaneFloatingGeometryParams, PaneFloatingToggleParams,
-    PaneFloatingToggleResult, PaneNeighborParams, PaneNeighborResult,
-    PaneProcessInfo, PaneProcessInfoParams, PaneProcessInfoProcess, PaneReadParams, PaneReadResult,
-    PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams,
-    PaneReportAgentSessionParams, PaneReportMetadataParams, PaneResizeParams, PaneResizeReason,
-    PaneResizeResult, PaneScrollParams, PaneSelectionReadParams, PaneSendInputParams,
-    PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneSwapReason,
-    PaneSwapResult, PaneTarget, PaneTextPoint, PaneTextRange, PaneZoomMode, PaneZoomParams,
-    PaneZoomReason, PaneZoomResult, ResponseResult,
+    PaneDirection, PaneEdgesParams, PaneEdgesResult, PaneFloatingFocusParams,
+    PaneFloatingGeometryParams, PaneFloatingToggleParams, PaneFloatingToggleResult,
+    PaneFocusDirectionParams, PaneFocusDirectionReason, PaneFocusDirectionResult, PaneInfo,
+    PaneInputSetParams, PaneLayoutPane, PaneLayoutParams, PaneLayoutRect, PaneLayoutSnapshot,
+    PaneLayoutSplit, PaneListParams, PaneMoveDestination, PaneMoveParams, PaneMoveReason,
+    PaneMoveResult, PaneNeighborParams, PaneNeighborResult, PaneProcessInfo, PaneProcessInfoParams,
+    PaneProcessInfoProcess, PaneReadParams, PaneReadResult, PaneReleaseAgentParams,
+    PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
+    PaneReportMetadataParams, PaneResizeParams, PaneResizeReason, PaneResizeResult,
+    PaneScrollParams, PaneSelectionReadParams, PaneSendInputParams, PaneSendKeysParams,
+    PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneSwapReason, PaneSwapResult,
+    PaneTarget, PaneTextPoint, PaneTextRange, PaneZoomMode, PaneZoomParams, PaneZoomReason,
+    PaneZoomResult, ResponseResult,
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
@@ -1444,8 +1444,7 @@ impl App {
             };
             let previous = self.state.active;
             self.state.active = Some(ws_idx);
-            self.state
-                .toggle_floating_pane(&mut self.terminal_runtimes);
+            self.state.toggle_floating_pane(&mut self.terminal_runtimes);
             self.state.active = previous;
             let visible = self
                 .state
@@ -1456,7 +1455,10 @@ impl App {
             return encode_success(
                 id,
                 ResponseResult::PaneFloatingToggle {
-                    floating: PaneFloatingToggleResult { visible, created: false },
+                    floating: PaneFloatingToggleResult {
+                        visible,
+                        created: false,
+                    },
                 },
             );
         }
@@ -1497,7 +1499,10 @@ impl App {
         encode_success(
             id,
             ResponseResult::PaneFloatingToggle {
-                floating: PaneFloatingToggleResult { visible: true, created: false },
+                floating: PaneFloatingToggleResult {
+                    visible: true,
+                    created: false,
+                },
             },
         )
     }
@@ -1526,7 +1531,10 @@ impl App {
         encode_success(
             id,
             ResponseResult::PaneFloatingToggle {
-                floating: PaneFloatingToggleResult { visible: true, created: false },
+                floating: PaneFloatingToggleResult {
+                    visible: true,
+                    created: false,
+                },
             },
         )
     }

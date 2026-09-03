@@ -366,19 +366,12 @@ impl HeadlessServer {
             let Some(target) = self.shell_target_for_client(client_id) else {
                 return false;
             };
-            let Some(workspace) = self
-                .app
-                .state
-                .workspaces
-                .get(target.workspace_index)
-            else {
+            let Some(workspace) = self.app.state.workspaces.get(target.workspace_index) else {
                 return false;
             };
             // A visible floating pane is a live surface even though it is not
             // part of any tab layout; its PTY output must reach the client.
-            if workspace.floating.visible
-                && workspace.floating_pane_states.contains_key(&pane_id)
-            {
+            if workspace.floating.visible && workspace.floating_pane_states.contains_key(&pane_id) {
                 return true;
             }
             let Some(tab) = workspace.tabs.get(target.tab_index) else {

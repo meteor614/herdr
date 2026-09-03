@@ -686,14 +686,9 @@ impl Workspace {
         self.close_tab(self.active_tab)
     }
 
-
     /// Create a floating pane that overlays the tiled content. Unlike a split,
     /// the new pane is not placed in any tab's layout tree; its `PaneState`
     /// lives in `floating_pane_states` and its position in `floating`.
-    // Floating panes currently have no TUI entry point after the upstream
-    // client-rendered shell merge; the data-level API is kept for the
-    // upcoming interaction-layer port.
-    #[allow(dead_code)]
     #[allow(clippy::too_many_arguments)]
     pub fn create_floating_pane(
         &mut self,
@@ -768,7 +763,6 @@ impl Workspace {
         self.unregister_pane(pane_id);
         terminal_id
     }
-
 
     #[allow(clippy::too_many_arguments)]
     pub fn split_focused_command(

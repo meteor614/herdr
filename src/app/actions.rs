@@ -314,7 +314,7 @@ impl AppState {
         let default_pos =
             crate::layout::floating::FloatingPanePosition::default_in_area(terminal_area)
                 .clamp_to_area(terminal_area);
-        let inner = crate::ui::panes::pane_inner_rect(
+        let inner = crate::ui::pane_inner_rect(
             default_pos.to_rect(terminal_area),
             ratatui::widgets::Borders::ALL,
         );
@@ -383,7 +383,10 @@ impl AppState {
     /// Focus (and raise) a floating pane by pane id, searching all workspaces.
     pub fn floating_focus_pane(&mut self, pane_id: PaneId) -> bool {
         for ws_idx in 0..self.workspaces.len() {
-            if self.workspaces[ws_idx].floating_pane_states.contains_key(&pane_id) {
+            if self.workspaces[ws_idx]
+                .floating_pane_states
+                .contains_key(&pane_id)
+            {
                 if let Some(ws) = self.workspaces.get_mut(ws_idx) {
                     ws.floating.focus(pane_id);
                 }
@@ -402,9 +405,7 @@ impl AppState {
         let area = self.view.terminal_area;
         for ws in &mut self.workspaces {
             if ws.floating_pane_states.contains_key(&pane_id) {
-                return ws
-                    .floating
-                    .set_position_clamped(pane_id, pos, area);
+                return ws.floating.set_position_clamped(pane_id, pos, area);
             }
         }
         false
@@ -2304,13 +2305,10 @@ impl AppState {
     fn handle_pane_died(&mut self, pane_id: PaneId) {
         self.pending_agent_notifications.remove(&pane_id);
         self.remove_plugin_pane_records([pane_id]);
-        let ws_idx = self
-            .workspaces
-            .iter()
-            .position(|ws| {
-                ws.find_tab_index_for_pane(pane_id).is_some()
-                    || ws.floating_pane_states.contains_key(&pane_id)
-            });
+        let ws_idx = self.workspaces.iter().position(|ws| {
+            ws.find_tab_index_for_pane(pane_id).is_some()
+                || ws.floating_pane_states.contains_key(&pane_id)
+        });
 
         let Some(ws_idx) = ws_idx else {
             warn!(pane = pane_id.raw(), "PaneDied for unknown pane");
@@ -3048,7 +3046,9 @@ mod tests {
         let mut state = app_with_workspaces(&["test"]);
         let floating_id = state.workspaces[0].test_add_floating_pane();
         state.ensure_test_terminals();
-        assert!(state.workspaces[0].floating_pane_states.contains_key(&floating_id));
+        assert!(state.workspaces[0]
+            .floating_pane_states
+            .contains_key(&floating_id));
 
         state.handle_pane_died(floating_id);
 

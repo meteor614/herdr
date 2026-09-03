@@ -2163,39 +2163,6 @@ switch_tab = "prefix+?"
     }
 
     #[test]
-    fn legacy_floating_keybind_names_configure_toggle_floating_pane() {
-        let create_alias: Config = toml::from_str(
-            r#"
-[keys]
-new_floating_pane = "prefix+shift+f"
-"#,
-        )
-        .unwrap();
-        assert_eq!(
-            binding_triggers(&create_alias.keybinds().toggle_floating_pane),
-            vec![BindingTrigger::Prefix((
-                KeyCode::Char('f'),
-                KeyModifiers::SHIFT
-            ))]
-        );
-
-        let focus_alias: Config = toml::from_str(
-            r#"
-[keys]
-toggle_floating_focus = "ctrl+alt+f"
-"#,
-        )
-        .unwrap();
-        assert_eq!(
-            binding_triggers(&focus_alias.keybinds().toggle_floating_pane),
-            vec![BindingTrigger::Direct((
-                KeyCode::Char('f'),
-                KeyModifiers::CONTROL | KeyModifiers::ALT
-            ))]
-        );
-    }
-
-    #[test]
     fn duplicate_prefix_binding_disables_later_binding() {
         let config: Config = toml::from_str(
             r#"

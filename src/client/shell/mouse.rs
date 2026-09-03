@@ -1078,8 +1078,8 @@ impl ClientShellState {
                     else {
                         return;
                     };
-                    let width =
-                        i32::from(origin_width) + i32::from(mouse.column) - i32::from(start_point.0);
+                    let width = i32::from(origin_width) + i32::from(mouse.column)
+                        - i32::from(start_point.0);
                     let height =
                         i32::from(origin_height) + i32::from(mouse.row) - i32::from(start_point.1);
                     self.push_endpoint_method(
