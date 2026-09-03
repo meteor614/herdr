@@ -15,13 +15,17 @@ impl HeadlessServer {
             }
         }
         let target = self.shell_target_for_client(client_id)?;
-        let tab = self
-            .app
-            .state
-            .workspaces
-            .get(target.workspace_index)?
-            .tabs
-            .get(target.tab_index)?;
+        let workspace = self.app.state.workspaces.get(target.workspace_index)?;
+        // A visible focused floating pane owns the shell focus: keyboard,
+        // mouse capture and host cursor follow it instead of the tiled tab.
+        if workspace.floating.visible {
+            if let Some(floating_id) = workspace.floating.focused {
+                let terminal_id = workspace.terminal_id(floating_id)?;
+                let runtime = self.app.terminal_runtimes.get(terminal_id)?;
+                return Some((runtime, floating_id));
+            }
+        }
+        let tab = workspace.tabs.get(target.tab_index)?;
         let pane_id = tab.layout.focused();
         self.app
             .state
@@ -244,6 +248,14 @@ impl HeadlessServer {
                 } else {
                     pane_ids.extend(tab.layout.pane_ids());
                 }
+                // Floating panes are immediate PTY sources too: their output
+                // must trigger the next pane-surface render even though they
+                // live outside any tab layout.
+                if let Some(workspace) = self.app.state.workspaces.get(target.workspace_index) {
+                    if workspace.floating.visible {
+                        pane_ids.extend(workspace.floating.order.iter().copied());
+                    }
+                }
                 if self.popup_owner_tab_id == self.shell_tab_id_for_client(client_id) {
                     if let Some(popup) = &self.app.state.popup_pane {
                         pane_ids.insert(popup.pane_id);
@@ -354,13 +366,22 @@ impl HeadlessServer {
             let Some(target) = self.shell_target_for_client(client_id) else {
                 return false;
             };
-            let Some(tab) = self
+            let Some(workspace) = self
                 .app
                 .state
                 .workspaces
                 .get(target.workspace_index)
-                .and_then(|workspace| workspace.tabs.get(target.tab_index))
             else {
+                return false;
+            };
+            // A visible floating pane is a live surface even though it is not
+            // part of any tab layout; its PTY output must reach the client.
+            if workspace.floating.visible
+                && workspace.floating_pane_states.contains_key(&pane_id)
+            {
+                return true;
+            }
+            let Some(tab) = workspace.tabs.get(target.tab_index) else {
                 return false;
             };
             tab.panes.contains_key(&pane_id) && (!tab.zoomed || tab.layout.focused() == pane_id)

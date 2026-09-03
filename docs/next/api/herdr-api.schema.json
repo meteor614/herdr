@@ -2563,6 +2563,68 @@
           },
           "type": "object"
         },
+        "PaneFloatingFocusParams": {
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
+        "PaneFloatingGeometryParams": {
+          "properties": {
+            "height": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "width": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "x": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "y": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pane_id",
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "PaneFloatingToggleParams": {
+          "properties": {
+            "workspace_id": {
+              "description": "Optional workspace to toggle; defaults to the focused workspace.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "PaneFocusDirectionParams": {
           "properties": {
             "direction": {
@@ -5522,6 +5584,54 @@
         {
           "properties": {
             "method": {
+              "const": "pane.floating.toggle",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneFloatingToggleParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.floating.focus",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneFloatingFocusParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.floating.geometry",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneFloatingGeometryParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "pane.layout",
               "type": "string"
             },
@@ -7853,6 +7963,23 @@
           ],
           "type": "object"
         },
+        "PaneFloatingToggleResult": {
+          "properties": {
+            "created": {
+              "description": "Whether the toggle created a new floating pane.",
+              "type": "boolean"
+            },
+            "visible": {
+              "description": "Whether a floating pane is now visible in the workspace.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "visible",
+            "created"
+          ],
+          "type": "object"
+        },
         "PaneFocusDirectionReason": {
           "enum": [
             "no_neighbor"
@@ -9629,6 +9756,22 @@
               "required": [
                 "type",
                 "zoom"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "floating": {
+                  "$ref": "#/schemas/success_response/$defs/PaneFloatingToggleResult"
+                },
+                "type": {
+                  "const": "pane_floating_toggle",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "floating"
               ],
               "type": "object"
             },

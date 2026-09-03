@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
 
 use crate::app;
-use crate::protocol::{self, FrameData};
+use crate::protocol::{self, CursorState, FrameData};
 
 pub(super) fn snapshot(
     app: &app::App,
@@ -17,19 +17,35 @@ pub(super) fn snapshot(
     let focused_tab_id = location
         .and_then(|location| location.focused_tab_id().map(str::to_owned))
         .or_else(|| snapshot.focused_tab_id.clone());
-    let focused_pane_id = focused_tab_id
+    let focused_pane_id = focused_workspace_id
         .as_deref()
-        .and_then(|tab_id| app.parse_tab_id(tab_id))
-        .and_then(|(workspace_index, tab_index)| {
-            let pane_id = app
-                .state
-                .workspaces
-                .get(workspace_index)?
-                .tabs
-                .get(tab_index)?
-                .layout
-                .focused();
-            app.public_pane_id(workspace_index, pane_id)
+        .and_then(|workspace_id| app.parse_workspace_id(workspace_id))
+        .and_then(|workspace_index| {
+            let workspace = app.state.workspaces.get(workspace_index)?;
+            // A visible floating pane that owns the workspace focus is the
+            // input target; the tiled layout must not steal key events while
+            // the floating pane is focused.
+            let floating_id = workspace
+                .floating
+                .focused
+                .filter(|_| workspace.floating.visible)?;
+            app.public_pane_id(workspace_index, floating_id)
+        })
+        .or_else(|| {
+            focused_tab_id
+                .as_deref()
+                .and_then(|tab_id| app.parse_tab_id(tab_id))
+                .and_then(|(workspace_index, tab_index)| {
+                    let pane_id = app
+                        .state
+                        .workspaces
+                        .get(workspace_index)?
+                        .tabs
+                        .get(tab_index)?
+                        .layout
+                        .focused();
+                    app.public_pane_id(workspace_index, pane_id)
+                })
         })
         .or_else(|| snapshot.focused_pane_id.clone());
     let workspaces = snapshot
@@ -283,7 +299,7 @@ pub(super) fn render_pane_surface(
             )
         })
         .unwrap_or_default();
-    let (buffer, cursor, hyperlinks, layout) =
+    let (mut buffer, mut cursor, hyperlinks, layout) =
         crate::server::render_stream::render_tab_surface_virtual(
             &app.state,
             &app.terminal_runtimes,
@@ -292,7 +308,7 @@ pub(super) fn render_pane_surface(
             resize_panes,
             cell_size,
         );
-    let panes = target
+    let mut panes: Vec<protocol::PaneSurfacePane> = target
         .map(|target| {
             let workspace_index = target.workspace_index;
             layout
@@ -340,6 +356,7 @@ pub(super) fn render_pane_surface(
                                     viewport_rows: metrics.viewport_rows as u64,
                                 },
                             ),
+                            floating: false,
                             focused: pane.is_focused,
                             mouse_reporting,
                             sgr_pixel_mouse,
@@ -398,6 +415,29 @@ pub(super) fn render_pane_surface(
         graphics_delivery,
         client_id,
     );
+
+    // Composite visible floating panes on top of the tiled content. Their
+    // metadata is appended last so clients hit-test floating panes above the
+    // tiled grid, matching the historical server-rendered z-order.
+    if let Some(target) = target {
+        if app.state.active == Some(target.workspace_index) {
+            let (extra_panes, floating_cursor) = composite_floating_panes(
+                app,
+                target.workspace_index,
+                area,
+                resize_panes,
+                cell_size,
+                &mut buffer,
+            );
+            // A focused floating pane owns the host cursor: suppress the
+            // tiled cursor and render the floating pane's own cursor instead.
+            if floating_cursor.is_some() {
+                cursor = floating_cursor;
+            }
+            panes.extend(extra_panes);
+        }
+    }
+
     RenderedPaneSurface {
         frame: FrameData::from_ratatui_buffer_with_hyperlinks(&buffer, cursor, &hyperlinks),
         panes,
@@ -406,6 +446,150 @@ pub(super) fn render_pane_surface(
         graphics,
         graphics_delivery: next_graphics_delivery,
     }
+}
+
+/// Composite visible floating panes for one workspace onto the pane-surface
+/// buffer and return their surface metadata. Floating panes are not part of
+/// any tab layout: the workspace-level floating state owns their geometry and
+/// z-order, and later entries render on top.
+fn composite_floating_panes(
+    app: &mut app::App,
+    workspace_index: usize,
+    area: Rect,
+    resize_panes: bool,
+    cell_size: crate::kitty_graphics::HostCellSize,
+    buffer: &mut ratatui::buffer::Buffer,
+) -> (Vec<protocol::PaneSurfacePane>, Option<CursorState>) {
+    let Some(workspace) = app.state.workspaces.get(workspace_index) else {
+        return (Vec::new(), None);
+    };
+    let floating_infos = workspace.floating.pane_infos(area);
+    if floating_infos.is_empty() {
+        return (Vec::new(), None);
+    }
+    let focused_floating = workspace.floating.focused;
+    let borders_enabled = app.state.pane_borders;
+    let accent = app.state.palette.accent;
+    let overlay = app.state.palette.overlay0;
+
+    let mut entries = Vec::with_capacity(floating_infos.len());
+    for info in floating_infos {
+        let terminal_id = workspace
+            .floating_pane_states
+            .get(&info.id)
+            .map(|pane| pane.attached_terminal_id.clone());
+        entries.push((info, terminal_id));
+    }
+
+    let mut surface_panes = Vec::with_capacity(entries.len());
+    let mut focused_cursor = None;
+    for (info, terminal_id) in entries {
+        let runtime = terminal_id
+            .as_ref()
+            .and_then(|terminal_id| app.terminal_runtimes.get(terminal_id));
+        let Some(runtime) = runtime else {
+            continue;
+        };
+        if resize_panes {
+            runtime.resize(
+                info.inner_rect.height,
+                info.inner_rect.width,
+                cell_size.width_px,
+                cell_size.height_px,
+            );
+        }
+
+        // Clear the floating pane area so tiled content does not show through.
+        let right = info.rect.x.saturating_add(info.rect.width).min(buffer.area.right());
+        let bottom = info.rect.y.saturating_add(info.rect.height).min(buffer.area.bottom());
+        for y in info.rect.y..bottom {
+            for x in info.rect.x..right {
+                if let Some(cell) = buffer.cell_mut(ratatui::layout::Position { x, y }) {
+                    *cell = ratatui::buffer::Cell::EMPTY;
+                }
+            }
+        }
+
+        // Border box. Focused floating panes reuse the tiled pane accent.
+        let is_focused = focused_floating == Some(info.id);
+        if is_focused && !runtime.synchronized_output_active() {
+            // The pane cursor is in content-local coordinates; translate it
+            // into surface coordinates so the host cursor follows the focused
+            // floating pane instead of being suppressed entirely.
+            focused_cursor = runtime.cursor_state(info.inner_rect, true).map(|cursor| {
+                CursorState {
+                    x: cursor.x,
+                    y: cursor.y,
+                    visible: cursor.visible,
+                    shape: cursor.shape,
+                }
+            });
+        }
+        if borders_enabled {
+            let border_style = ratatui::style::Style::default().fg(if is_focused {
+                accent
+            } else {
+                overlay
+            });
+            let block = ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(border_style);
+            ratatui::widgets::Widget::render(block, info.rect, buffer);
+        }
+
+        // Content. Floating panes have no split topology, so their cells are
+        // blitted straight into the surface buffer; hyperlinks inside floating
+        // panes are not forwarded yet.
+        let content_area = Rect::new(0, 0, info.inner_rect.width, info.inner_rect.height);
+        let (pane_buffer, _pane_cursor) =
+            crate::server::render_stream::render_terminal_virtual(runtime, content_area);
+        for row in 0..info.inner_rect.height {
+            for col in 0..info.inner_rect.width {
+                let source_cell = pane_buffer[(col, row)].clone();
+                if let Some(cell) = buffer.cell_mut(ratatui::layout::Position {
+                    x: info.inner_rect.x + col,
+                    y: info.inner_rect.y + row,
+                }) {
+                    *cell = source_cell;
+                }
+            }
+        }
+
+        let mouse_reporting = runtime.mouse_reporting_enabled();
+        let sgr_pixel_mouse = runtime.sgr_pixel_mouse_enabled();
+        let alternate_screen_active = runtime.alternate_screen_active();
+        let scroll = runtime.scroll_metrics().map(|metrics| protocol::PaneSurfaceScrollMetrics {
+            offset_from_bottom: metrics.offset_from_bottom as u64,
+            max_offset_from_bottom: metrics.max_offset_from_bottom as u64,
+            viewport_rows: metrics.viewport_rows as u64,
+        });
+        let (pixel_width, pixel_height) = if cell_size.is_known() {
+            (
+                u32::from(info.inner_rect.width) * cell_size.width_px,
+                u32::from(info.inner_rect.height) * cell_size.height_px,
+            )
+        } else {
+            (0, 0)
+        };
+        if let Some(public_pane_id) = app.public_pane_id(workspace_index, info.id) {
+            surface_panes.push(protocol::PaneSurfacePane {
+                pane_id: public_pane_id,
+                content_revision: 0,
+                rect: info.rect.into(),
+                inner_rect: info.inner_rect.into(),
+                scrollbar_rect: None,
+                scroll,
+                floating: true,
+                focused: is_focused,
+                mouse_reporting,
+                sgr_pixel_mouse,
+                alternate_screen_active,
+                pixel_width,
+                pixel_height,
+            });
+        }
+    }
+    (surface_panes, focused_cursor)
 }
 
 fn render_popup_surface(
@@ -542,6 +726,40 @@ fn split_hit_rect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_focused_pane_id_follows_focused_floating_pane() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = crate::app::App::new(
+            &crate::config::Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces.push(crate::workspace::Workspace::test_new("ws"));
+        app.state.active = Some(0);
+        let tiled_root = app.state.workspaces[0].tabs[0].root_pane;
+        let floating_id = app.state.workspaces[0].test_add_floating_pane();
+        let floating_public = app.public_pane_id(0, floating_id).unwrap();
+
+        // A visible focused floating pane is the input target: the client
+        // routes keystrokes from snapshot.focused_pane_id.
+        let client_snapshot = snapshot(&app, "boot", 1, None, None);
+        assert_eq!(
+            client_snapshot.focused_pane_id.as_deref(),
+            Some(floating_public.as_str())
+        );
+
+        // Hiding the floating pane must fall back to the tiled focus so the
+        // client stops typing into the (now invisible) floating pane.
+        app.state.workspaces[0].floating.hide();
+        let client_snapshot = snapshot(&app, "boot", 2, None, None);
+        assert_eq!(
+            client_snapshot.focused_pane_id.as_deref(),
+            app.public_pane_id(0, tiled_root).as_deref()
+        );
+    }
 
     #[test]
     fn snapshot_projects_cached_release_and_update_facts() {

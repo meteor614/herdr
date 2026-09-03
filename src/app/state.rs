@@ -1125,6 +1125,15 @@ impl AppState {
                     }
                 }
             }
+            for pane in ws.floating_pane_states.values() {
+                if !self.terminals.contains_key(&pane.attached_terminal_id) {
+                    let cwd = ws.identity_cwd.clone();
+                    self.terminals.insert(
+                        pane.attached_terminal_id.clone(),
+                        TerminalState::new(pane.attached_terminal_id.clone(), cwd),
+                    );
+                }
+            }
         }
     }
 

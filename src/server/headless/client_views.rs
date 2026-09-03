@@ -496,13 +496,16 @@ impl HeadlessServer {
         if target.workspace_index != workspace_index {
             return false;
         }
-        let Some(tab) = self
-            .app
-            .state
-            .workspaces
-            .get(workspace_index)
-            .and_then(|workspace| workspace.tabs.get(target.tab_index))
-        else {
+        let Some(workspace) = self.app.state.workspaces.get(workspace_index) else {
+            return false;
+        };
+        // A visible focused floating pane is the client's input target even
+        // though it is not part of any tab layout; the tiled layout must not
+        // make the client look like it does not see its own focused pane.
+        if workspace.floating.visible && workspace.floating.focused == Some(pane_id) {
+            return true;
+        }
+        let Some(tab) = workspace.tabs.get(target.tab_index) else {
             return false;
         };
         if tab.zoomed {

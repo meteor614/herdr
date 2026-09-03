@@ -628,48 +628,68 @@ fn render_pane_border_titles(
     let buf = frame.buffer_mut();
     let area = buf.area;
     for info in pane_infos {
-        if !info.borders.contains(Borders::TOP) || info.rect.width <= 4 {
-            continue;
-        }
-        let Some(title) = ws
-            .pane_state(info.id)
-            .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.border_label(app.show_agent_labels_on_pane_borders))
-            .and_then(|label| pane_border_title(&label, info.rect.width, info.is_focused))
-        else {
+        let Some(title) = pane_border_title_for(app, ws, info) else {
             continue;
         };
-        let y = info.rect.y;
-        if y < area.y || y >= area.y.saturating_add(area.height) {
-            continue;
-        }
-        let start_x = info.rect.x.saturating_add(1);
-        let end_x = info
-            .rect
-            .x
-            .saturating_add(info.rect.width)
-            .saturating_sub(1)
-            .min(area.x.saturating_add(area.width));
-        if start_x >= end_x {
-            continue;
-        }
-        let color = if info.is_focused {
-            app.palette.accent
-        } else {
-            app.palette.overlay0
-        };
-        let mut style = Style::default().fg(color);
-        if info.is_focused {
-            style = style.add_modifier(Modifier::BOLD);
-        }
-        buf.set_stringn(
-            start_x,
-            y,
-            title,
-            end_x.saturating_sub(start_x) as usize,
-            style,
-        );
+        render_pane_border_title(app, buf, area, info, &title);
     }
+}
+
+/// Resolve the border title string for a pane, honoring width and the
+/// `show_agent_labels_on_pane_borders` setting. Returns `None` when no title
+/// should be drawn (top border absent, pane too narrow, or no label).
+fn pane_border_title_for(
+    app: &AppState,
+    ws: &crate::workspace::Workspace,
+    info: &PaneInfo,
+) -> Option<String> {
+    if !info.borders.contains(Borders::TOP) || info.rect.width <= 4 {
+        return None;
+    }
+    ws.pane_state(info.id)
+        .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
+        .and_then(|terminal| terminal.border_label(app.show_agent_labels_on_pane_borders))
+        .and_then(|label| pane_border_title(&label, info.rect.width, info.is_focused))
+}
+
+/// Draw a resolved title onto a single pane's top border.
+fn render_pane_border_title(
+    app: &AppState,
+    buf: &mut ratatui::buffer::Buffer,
+    area: Rect,
+    info: &PaneInfo,
+    title: &str,
+) {
+    let y = info.rect.y;
+    if y < area.y || y >= area.y.saturating_add(area.height) {
+        return;
+    }
+    let start_x = info.rect.x.saturating_add(1);
+    let end_x = info
+        .rect
+        .x
+        .saturating_add(info.rect.width)
+        .saturating_sub(1)
+        .min(area.x.saturating_add(area.width));
+    if start_x >= end_x {
+        return;
+    }
+    let color = if info.is_focused {
+        app.palette.accent
+    } else {
+        app.palette.overlay0
+    };
+    let mut style = Style::default().fg(color);
+    if info.is_focused {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    buf.set_stringn(
+        start_x,
+        y,
+        title,
+        end_x.saturating_sub(start_x) as usize,
+        style,
+    );
 }
 
 fn line_cell_symbol(line: LineCell) -> &'static str {

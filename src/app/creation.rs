@@ -181,6 +181,7 @@ impl App {
                 .tabs
                 .iter()
                 .flat_map(|tab| tab.layout.pane_ids().into_iter())
+                .chain(ws.floating.order.iter().copied())
                 .filter_map(|pane_id| self.pane_info(ws_idx, pane_id))
                 .collect())
         } else {
@@ -193,6 +194,7 @@ impl App {
                     ws.tabs
                         .iter()
                         .flat_map(|tab| tab.layout.pane_ids().into_iter())
+                        .chain(ws.floating.order.iter().copied())
                         .filter_map(move |pane_id| self.pane_info(ws_idx, pane_id))
                 })
                 .collect())
@@ -312,7 +314,7 @@ impl App {
         let ws = self.state.workspaces.get(ws_idx)?;
         let pane = ws.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
-        let tab_idx = ws.find_tab_index_for_pane(pane_id)?;
+        let tab_idx = ws.effective_tab_index_for_pane(pane_id)?;
         let scroll = self
             .state
             .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
@@ -334,10 +336,10 @@ impl App {
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             focused,
-            cwd: ws.tabs[tab_idx]
+            cwd: ws
                 .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
-            foreground_cwd: ws.tabs[tab_idx]
+            foreground_cwd: ws
                 .foreground_cwd_for_pane(pane_id, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
             label: terminal.manual_label.clone(),

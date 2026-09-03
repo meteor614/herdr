@@ -1085,6 +1085,10 @@ pub struct PaneSurfacePane {
     pub inner_rect: SurfaceRect,
     pub scrollbar_rect: Option<SurfaceRect>,
     pub scroll: Option<PaneSurfaceScrollMetrics>,
+    /// True for workspace-level floating panes composited above the tiled
+    /// grid. Clients use this to prioritize hit-testing and drag gestures.
+    #[serde(default)]
+    pub floating: bool,
     pub focused: bool,
     pub mouse_reporting: bool,
     pub sgr_pixel_mouse: bool,

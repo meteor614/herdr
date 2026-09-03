@@ -3516,3 +3516,4 @@ fn server_config_diagnostic_summaries(diagnostics: &[String]) -> (Option<String>
 
 #[cfg(test)]
 mod tests;
+

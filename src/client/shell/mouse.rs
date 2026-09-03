@@ -1028,6 +1028,75 @@ impl ClientShellState {
                     }
                     return;
                 }
+                Some(ClientChromeDrag::FloatingMove {
+                    pane_id,
+                    grab_offset,
+                }) => {
+                    let pane_id = pane_id.clone();
+                    let grab_offset = *grab_offset;
+                    let Some(rect) = self
+                        .hits
+                        .panes
+                        .iter()
+                        .find(|hit| hit.pane_id == pane_id)
+                        .map(|hit| hit.rect)
+                    else {
+                        return;
+                    };
+                    let x = (i32::from(mouse.column) - grab_offset.0).clamp(0, i32::from(u16::MAX));
+                    let y = (i32::from(mouse.row) - grab_offset.1).clamp(0, i32::from(u16::MAX));
+                    self.push_endpoint_method(
+                        crate::api::schema::Method::PaneFloatingGeometry(
+                            crate::api::schema::PaneFloatingGeometryParams {
+                                pane_id,
+                                x: x as u16,
+                                y: y as u16,
+                                width: rect.width,
+                                height: rect.height,
+                            },
+                        ),
+                        outcome,
+                    );
+                    outcome.repaint = true;
+                    return;
+                }
+                Some(ClientChromeDrag::FloatingResize {
+                    pane_id,
+                    start_point,
+                    origin_width,
+                    origin_height,
+                }) => {
+                    let pane_id = pane_id.clone();
+                    let (start_point, origin_width, origin_height) =
+                        (*start_point, *origin_width, *origin_height);
+                    let Some(rect) = self
+                        .hits
+                        .panes
+                        .iter()
+                        .find(|hit| hit.pane_id == pane_id)
+                        .map(|hit| hit.rect)
+                    else {
+                        return;
+                    };
+                    let width =
+                        i32::from(origin_width) + i32::from(mouse.column) - i32::from(start_point.0);
+                    let height =
+                        i32::from(origin_height) + i32::from(mouse.row) - i32::from(start_point.1);
+                    self.push_endpoint_method(
+                        crate::api::schema::Method::PaneFloatingGeometry(
+                            crate::api::schema::PaneFloatingGeometryParams {
+                                pane_id,
+                                x: rect.x,
+                                y: rect.y,
+                                width: width.clamp(4, i32::from(u16::MAX)) as u16,
+                                height: height.clamp(3, i32::from(u16::MAX)) as u16,
+                            },
+                        ),
+                        outcome,
+                    );
+                    outcome.repaint = true;
+                    return;
+                }
                 Some(ClientChromeDrag::PaneSplit {
                     hit,
                     tab_id,
@@ -1256,6 +1325,8 @@ impl ClientShellState {
                             );
                         }
                     }
+                    ClientChromeDrag::FloatingMove { .. }
+                    | ClientChromeDrag::FloatingResize { .. } => {}
                     ClientChromeDrag::SidebarWidth | ClientChromeDrag::SidebarSection => {
                         self.persist_chrome_preferences(outcome);
                     }
@@ -1696,11 +1767,19 @@ impl ClientShellState {
 
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Right) => {
+                // Floating panes sit above the tiled grid, so they win
+                // hit-testing even when a tiled pane shares the same cells.
                 let pane_hit = self
                     .hits
                     .panes
                     .iter()
-                    .find(|hit| super::contains(hit.inner_rect, point))
+                    .find(|hit| hit.floating && super::contains(hit.inner_rect, point))
+                    .or_else(|| {
+                        self.hits
+                            .panes
+                            .iter()
+                            .find(|hit| super::contains(hit.inner_rect, point))
+                    })
                     .cloned();
                 if let Some(hit) = pane_hit {
                     let pane_owns_right_click = self
@@ -1777,7 +1856,13 @@ impl ClientShellState {
                     .hits
                     .panes
                     .iter()
-                    .find(|hit| super::contains(hit.rect, point))
+                    .find(|hit| hit.floating && super::contains(hit.rect, point))
+                    .or_else(|| {
+                        self.hits
+                            .panes
+                            .iter()
+                            .find(|hit| super::contains(hit.rect, point))
+                    })
                     .map(|hit| hit.pane_id.clone());
                 if let Some(pane_id) = pane_id {
                     self.open_pane_context_menu(pane_id, mouse.column, mouse.row);
@@ -2139,13 +2224,25 @@ impl ClientShellState {
                     });
                     return;
                 }
+                // Floating panes sit above the tiled grid, so they win
+                // hit-testing even when a tiled pane shares the same cells.
                 let pane_hit = self
                     .hits
                     .panes
                     .iter()
-                    .find(|hit| super::contains(hit.rect, point))
+                    .find(|hit| hit.floating && super::contains(hit.rect, point))
+                    .or_else(|| {
+                        self.hits
+                            .panes
+                            .iter()
+                            .find(|hit| super::contains(hit.rect, point))
+                    })
                     .cloned();
                 if let Some(hit) = pane_hit {
+                    if hit.floating {
+                        self.handle_floating_pane_click(hit, mouse, point, outcome);
+                        return;
+                    }
                     if hit.mouse_reporting && super::contains(hit.inner_rect, point) {
                         self.push_pane_mouse_event(&hit, mouse, mouse.modifiers, outcome);
                         self.pane_mouse_gesture = Some(ClientPaneMouseGesture {
@@ -2247,6 +2344,61 @@ impl ClientShellState {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Handle a left click on a floating pane: focus and raise it, then
+    /// start a move drag from the border or a resize drag from the bottom
+    /// right corner. Content clicks fall through to normal pane interaction.
+    fn handle_floating_pane_click(
+        &mut self,
+        hit: PaneHit,
+        mouse: MouseEvent,
+        point: (u16, u16),
+        outcome: &mut ClientShellInput,
+    ) {
+        self.push_endpoint_method(
+            crate::api::schema::Method::PaneFloatingFocus(
+                crate::api::schema::PaneFloatingFocusParams {
+                    pane_id: hit.pane_id.clone(),
+                },
+            ),
+            outcome,
+        );
+
+        let rect = hit.rect;
+        let corner_hit = point.0 + 2 >= rect.right() && point.1 + 2 >= rect.bottom();
+        if corner_hit {
+            self.chrome_drag = Some(ClientChromeDrag::FloatingResize {
+                pane_id: hit.pane_id.clone(),
+                start_point: point,
+                origin_width: rect.width,
+                origin_height: rect.height,
+            });
+            return;
+        }
+        if !super::contains(hit.inner_rect, point) {
+            // Border: start a move drag, keeping the grab offset stable so
+            // the pane tracks origin + delta instead of snapping its corner
+            // to the cursor.
+            self.chrome_drag = Some(ClientChromeDrag::FloatingMove {
+                pane_id: hit.pane_id.clone(),
+                grab_offset: (
+                    i32::from(point.0) - i32::from(rect.x),
+                    i32::from(point.1) - i32::from(rect.y),
+                ),
+            });
+            return;
+        }
+        if hit.mouse_reporting {
+            self.push_pane_mouse_event(&hit, mouse, mouse.modifiers, outcome);
+            self.pane_mouse_gesture = Some(ClientPaneMouseGesture {
+                last_position: self.pane_mouse_position(&hit, mouse),
+                hit,
+                button: MouseButton::Left,
+                stripped_modifiers: crossterm::event::KeyModifiers::empty(),
+                last_event: mouse,
+            });
         }
     }
 

@@ -293,7 +293,136 @@ impl AppState {
         }
     }
 
+    pub fn new_floating_pane(
+        &mut self,
+        terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+    ) {
+        let Some(ws_idx) = self.active else {
+            return;
+        };
+        let terminal_area = self.view.terminal_area;
+
+        let follow_cwd = self.workspaces.get(ws_idx).and_then(|ws| {
+            let pane_id = ws.focused_pane_id()?;
+            ws.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes)
+        });
+        let cwd = Some(super::creation::resolve_new_terminal_cwd(
+            &self.new_terminal_cwd,
+            follow_cwd,
+        ));
+
+        let default_pos =
+            crate::layout::floating::FloatingPanePosition::default_in_area(terminal_area)
+                .clamp_to_area(terminal_area);
+        let inner = crate::ui::panes::pane_inner_rect(
+            default_pos.to_rect(terminal_area),
+            ratatui::widgets::Borders::ALL,
+        );
+
+        let Some(ws) = self.workspaces.get_mut(ws_idx) else {
+            return;
+        };
+        let Ok(new_pane) = ws.create_floating_pane(
+            inner.height,
+            inner.width,
+            cwd,
+            self.pane_scrollback_limit_bytes,
+            self.host_terminal_theme,
+            self.host_terminal_appearance,
+            crate::pane::PaneShellConfig::new(&self.default_shell, self.shell_mode),
+            Vec::new(),
+            terminal_area,
+        ) else {
+            return;
+        };
+
+        let new_id = new_pane.pane_id;
+        terminal_runtimes.insert(new_pane.terminal.id.clone(), new_pane.runtime);
+
+        self.remove_alias_shadowed_by_new_pane(new_id);
+        self.terminals
+            .insert(new_pane.terminal.id.clone(), new_pane.terminal);
+        self.mark_session_dirty();
+        self.mode = Mode::Terminal;
+    }
+
+    /// Hide a visible floating pane or show a hidden one. Returns true when an
+    /// existing pane handled the toggle; callers should create one on false.
+    pub fn toggle_floating_pane_visibility(&mut self) -> bool {
+        let Some(ws_idx) = self.active else {
+            return true;
+        };
+        let Some(ws) = self.workspaces.get_mut(ws_idx) else {
+            return true;
+        };
+        if ws.floating.is_empty() {
+            return false;
+        }
+
+        if ws.floating.visible {
+            ws.floating.hide();
+        } else {
+            ws.floating.show();
+        }
+        self.mark_session_dirty();
+        true
+    }
+
+    /// Toggle floating pane visibility, creating a floating pane when none
+    /// exists in the active workspace.
+    pub fn toggle_floating_pane(
+        &mut self,
+        terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+    ) {
+        if !self.toggle_floating_pane_visibility() {
+            self.new_floating_pane(terminal_runtimes);
+        }
+        self.mode = Mode::Terminal;
+    }
+
+    /// Focus (and raise) a floating pane by pane id, searching all workspaces.
+    pub fn floating_focus_pane(&mut self, pane_id: PaneId) -> bool {
+        for ws_idx in 0..self.workspaces.len() {
+            if self.workspaces[ws_idx].floating_pane_states.contains_key(&pane_id) {
+                if let Some(ws) = self.workspaces.get_mut(ws_idx) {
+                    ws.floating.focus(pane_id);
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Move/resize a floating pane, clamped to the current terminal area.
+    pub fn floating_set_geometry(
+        &mut self,
+        pane_id: PaneId,
+        pos: crate::layout::floating::FloatingPanePosition,
+    ) -> bool {
+        let area = self.view.terminal_area;
+        for ws in &mut self.workspaces {
+            if ws.floating_pane_states.contains_key(&pane_id) {
+                return ws
+                    .floating
+                    .set_position_clamped(pane_id, pos, area);
+            }
+        }
+        false
+    }
+
     pub(crate) fn focus_pane_in_workspace(&mut self, ws_idx: usize, pane_id: PaneId) -> bool {
+        // Clicking/focusing a tiled pane hides visible floating panes so the
+        // focused surface is fully interactive again.
+        let floating_visible = self
+            .workspaces
+            .get(ws_idx)
+            .is_some_and(|ws| ws.floating.visible);
+        if floating_visible {
+            if let Some(ws) = self.workspaces.get_mut(ws_idx) {
+                ws.floating.hide();
+            }
+            self.mark_session_dirty();
+        }
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return false;
         };
@@ -2178,7 +2307,10 @@ impl AppState {
         let ws_idx = self
             .workspaces
             .iter()
-            .position(|ws| ws.find_tab_index_for_pane(pane_id).is_some());
+            .position(|ws| {
+                ws.find_tab_index_for_pane(pane_id).is_some()
+                    || ws.floating_pane_states.contains_key(&pane_id)
+            });
 
         let Some(ws_idx) = ws_idx else {
             warn!(pane = pane_id.raw(), "PaneDied for unknown pane");
@@ -2192,7 +2324,14 @@ impl AppState {
             .retain(|_, alias| *alias != pane_id);
         let should_close_workspace = {
             let ws = &mut self.workspaces[ws_idx];
-            ws.remove_pane(pane_id)
+            if ws.floating_pane_states.contains_key(&pane_id) {
+                // A floating pane is not part of any tab layout; removing it
+                // must never collapse the workspace.
+                ws.remove_floating_pane(pane_id);
+                false
+            } else {
+                ws.remove_pane(pane_id)
+            }
         };
         self.mark_session_dirty();
 
@@ -2247,6 +2386,29 @@ mod tests {
     use crate::detect::{Agent, AgentState};
     use crate::workspace::Workspace;
     use ratatui::layout::Direction;
+
+    #[test]
+    fn toggle_floating_pane_visibility_hides_and_shows_existing_pane() {
+        let mut state = app_with_workspaces(&["floating"]);
+        state.active = Some(0);
+        let floating_id = state.workspaces[0].test_add_floating_pane();
+
+        assert!(state.toggle_floating_pane_visibility());
+        assert!(!state.workspaces[0].floating.visible);
+        assert_eq!(state.workspaces[0].floating.focused, None);
+
+        assert!(state.toggle_floating_pane_visibility());
+        assert!(state.workspaces[0].floating.visible);
+        assert_eq!(state.workspaces[0].floating.focused, Some(floating_id));
+    }
+
+    #[test]
+    fn toggle_floating_pane_visibility_reports_missing_pane() {
+        let mut state = app_with_workspaces(&["floating"]);
+        state.active = Some(0);
+
+        assert!(!state.toggle_floating_pane_visibility());
+    }
 
     fn app_with_workspaces(names: &[&str]) -> AppState {
         let mut state = AppState::test_new();
@@ -2878,6 +3040,21 @@ mod tests {
         state.handle_pane_died(fake_id);
 
         assert_eq!(state.workspaces.len(), 1);
+        state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn pane_died_floating_pane_is_removed_without_closing_workspace() {
+        let mut state = app_with_workspaces(&["test"]);
+        let floating_id = state.workspaces[0].test_add_floating_pane();
+        state.ensure_test_terminals();
+        assert!(state.workspaces[0].floating_pane_states.contains_key(&floating_id));
+
+        state.handle_pane_died(floating_id);
+
+        assert_eq!(state.workspaces.len(), 1);
+        assert!(state.workspaces[0].floating_pane_states.is_empty());
+        assert!(state.workspaces[0].floating.order.is_empty());
         state.assert_invariants_for_test();
     }
     #[test]

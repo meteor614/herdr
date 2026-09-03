@@ -132,6 +132,9 @@ pub enum ResponseResult {
     PaneZoom {
         zoom: PaneZoomResult,
     },
+    PaneFloatingToggle {
+        floating: super::panes::PaneFloatingToggleResult,
+    },
     PaneLayout {
         layout: PaneLayoutSnapshot,
     },

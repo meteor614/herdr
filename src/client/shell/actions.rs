@@ -870,6 +870,7 @@ impl ClientShellState {
         use crate::api::schema::{
             Method, PaneDirection, PaneFocusDirectionParams, PaneResizeParams, PaneSplitParams,
             PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, SplitDirection,
+            PaneFloatingToggleParams,
             TabCreateParams, TabMoveParams, TabTarget, WorkspaceTarget,
         };
         use crate::input::KeybindAction;
@@ -1111,6 +1112,9 @@ impl ClientShellState {
                 pane_id: focused_pane,
                 mode: PaneZoomMode::Toggle,
             })),
+            KeybindAction::ToggleFloatingPane => {
+                Some(Method::PaneFloatingToggle(PaneFloatingToggleParams::default()))
+            }
             KeybindAction::EditScrollback => Some(Method::PaneEditScrollback(PaneTarget {
                 pane_id: focused_pane?,
             })),

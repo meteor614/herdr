@@ -143,6 +143,12 @@ pub enum Method {
     PaneMove(PaneMoveParams),
     #[serde(rename = "pane.zoom")]
     PaneZoom(PaneZoomParams),
+    #[serde(rename = "pane.floating.toggle")]
+    PaneFloatingToggle(PaneFloatingToggleParams),
+    #[serde(rename = "pane.floating.focus")]
+    PaneFloatingFocus(PaneFloatingFocusParams),
+    #[serde(rename = "pane.floating.geometry")]
+    PaneFloatingGeometry(PaneFloatingGeometryParams),
     #[serde(rename = "pane.layout")]
     PaneLayout(PaneLayoutParams),
     #[serde(rename = "pane.process_info")]

@@ -363,6 +363,7 @@ pub struct Keybinds {
     pub split_horizontal: ActionKeybinds,
     pub close_pane: ActionKeybinds,
     pub zoom: ActionKeybinds,
+    pub toggle_floating_pane: ActionKeybinds,
     pub resize_mode: ActionKeybinds,
     pub resize_pane_left: ActionKeybinds,
     pub resize_pane_down: ActionKeybinds,
@@ -531,6 +532,7 @@ impl Config {
             split_horizontal: empty_action!(),
             close_pane: empty_action!(),
             zoom: empty_action!(),
+            toggle_floating_pane: empty_action!(),
             resize_mode: empty_action!(),
             resize_pane_left: empty_action!(),
             resize_pane_down: empty_action!(),
@@ -678,6 +680,7 @@ impl Config {
             apply_action!(keybinds.split_horizontal, split_horizontal, source);
             apply_action!(keybinds.close_pane, close_pane, source);
             apply_action!(keybinds.zoom, zoom, source);
+            apply_action!(keybinds.toggle_floating_pane, toggle_floating_pane, source);
             apply_action!(keybinds.resize_mode, resize_mode, source);
             apply_action!(keybinds.resize_pane_left, resize_pane_left, source);
             apply_action!(keybinds.resize_pane_down, resize_pane_down, source);
@@ -2148,6 +2151,46 @@ switch_tab = "prefix+?"
             vec![BindingTrigger::Prefix((
                 KeyCode::Char('l'),
                 KeyModifiers::SHIFT
+            ))]
+        );
+        assert_eq!(
+            binding_triggers(&kb.toggle_floating_pane),
+            vec![BindingTrigger::Prefix((
+                KeyCode::Char('f'),
+                KeyModifiers::empty()
+            ))]
+        );
+    }
+
+    #[test]
+    fn legacy_floating_keybind_names_configure_toggle_floating_pane() {
+        let create_alias: Config = toml::from_str(
+            r#"
+[keys]
+new_floating_pane = "prefix+shift+f"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            binding_triggers(&create_alias.keybinds().toggle_floating_pane),
+            vec![BindingTrigger::Prefix((
+                KeyCode::Char('f'),
+                KeyModifiers::SHIFT
+            ))]
+        );
+
+        let focus_alias: Config = toml::from_str(
+            r#"
+[keys]
+toggle_floating_focus = "ctrl+alt+f"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            binding_triggers(&focus_alias.keybinds().toggle_floating_pane),
+            vec![BindingTrigger::Direct((
+                KeyCode::Char('f'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT
             ))]
         );
     }

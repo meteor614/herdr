@@ -190,6 +190,7 @@ pub(super) struct PaneHit {
     pub(super) scroll: Option<crate::pane::ScrollMetrics>,
     pub(super) pane_id: String,
     pub(super) popup: bool,
+    pub(super) floating: bool,
     pub(super) mouse_reporting: bool,
     pub(super) sgr_pixel_mouse: bool,
     pub(super) pixel_width: u32,
@@ -266,6 +267,16 @@ pub(super) enum ClientChromeDrag {
         grab_row_offset: u16,
         last_sent_offset: Option<usize>,
         last_sent_at: Option<std::time::Instant>,
+    },
+    FloatingMove {
+        pane_id: String,
+        grab_offset: (i32, i32),
+    },
+    FloatingResize {
+        pane_id: String,
+        start_point: (u16, u16),
+        origin_width: u16,
+        origin_height: u16,
     },
 }
 

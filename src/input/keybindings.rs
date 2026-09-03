@@ -63,6 +63,7 @@ pub(crate) enum KeybindAction {
     CyclePaneNext,
     CyclePanePrevious,
     LastPane,
+    ToggleFloatingPane,
     Help,
     Settings,
     ReloadConfig,
@@ -134,6 +135,10 @@ pub(crate) fn resolve_non_indexed_action(
         (
             &keybinds.cycle_pane_previous,
             KeybindAction::CyclePanePrevious,
+        ),
+        (
+            &keybinds.toggle_floating_pane,
+            KeybindAction::ToggleFloatingPane,
         ),
         (&keybinds.split_vertical, KeybindAction::SplitVertical),
         (&keybinds.split_horizontal, KeybindAction::SplitHorizontal),
