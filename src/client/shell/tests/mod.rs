@@ -6,7 +6,7 @@ use crate::protocol::{
 };
 use crossterm::event::MouseEvent;
 
-fn snapshot() -> ClientShellSnapshot {
+pub(super) fn snapshot() -> ClientShellSnapshot {
     ClientShellSnapshot {
         boot_id: "boot-1".into(),
         revision: 1,
@@ -212,6 +212,8 @@ fn surface_with_popup() -> PaneSurfaceFrame {
 mod agents_worktrees_notifications;
 mod chrome_context;
 mod copy;
+mod endpoint_requests;
+mod endpoints;
 #[path = "input.rs"]
 mod input_domain;
 mod keybindings_settings;

@@ -1392,11 +1392,21 @@ impl PaneRuntimeIo {
         text: Bytes,
         enter: Bytes,
         delay: std::time::Duration,
+        deadline: Option<std::time::Instant>,
     ) -> std::io::Result<std::sync::mpsc::Receiver<std::io::Result<()>>> {
         match self {
-            PaneRuntimeIo::Actor(actor) => actor.queue_user_input_submission(text, enter, delay),
+            PaneRuntimeIo::Actor(actor) => {
+                #[cfg(windows)]
+                return actor.queue_user_input_submission(text, enter, delay, deadline);
+                #[cfg(unix)]
+                {
+                    let _ = deadline;
+                    actor.queue_user_input_submission(text, enter, delay)
+                }
+            }
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { sender, .. } => {
+                let _ = deadline;
                 let sender = sender.clone();
                 let (reply_tx, reply_rx) = std::sync::mpsc::channel();
                 std::thread::spawn(move || {
@@ -2184,7 +2194,12 @@ impl PaneRuntime {
             });
             let exit_events = events.clone();
             let on_reader_exit = Box::new(move || {
-                let _ = rt.block_on(exit_events.send(AppEvent::PaneDied { pane_id }));
+                // Imported handoff panes have no child wait handle, so their exit cause is
+                // unknowable. Checkpoint conservatively; normal autosave settles clean exits.
+                let _ = rt.block_on(exit_events.send(AppEvent::PaneDied {
+                    pane_id,
+                    exit_reason: crate::platform::ChildExitReason::Handoff,
+                }));
                 debug!(pane = pane_id.raw(), "handoff PTY actor exiting");
             });
             PaneRuntimeIo::Actor(PtyIoActor::spawn(PtyIoActorConfig {
@@ -2289,16 +2304,24 @@ impl PaneRuntime {
                 crate::logging::pane_spawned(pane_id.raw(), pid);
             }
             tokio::task::spawn_blocking(move || {
-                match child.wait() {
+                let exit_reason = match child.wait() {
                     Ok(status) => {
+                        let exit_reason = crate::platform::classify_child_exit(&status);
                         let status_text = format!("{status:?}");
                         crate::logging::pane_exited(pane_id.raw(), &status_text);
+                        exit_reason
                     }
-                    Err(e) => crate::logging::pane_exit_failed(pane_id.raw(), &e.to_string()),
-                }
+                    Err(e) => {
+                        crate::logging::pane_exit_failed(pane_id.raw(), &e.to_string());
+                        crate::platform::ChildExitReason::WaitFailed
+                    }
+                };
                 child_wait_completed.store(true, Ordering::Release);
                 // Use blocking send — PaneDied is critical, must not be dropped
-                if let Err(e) = rt.block_on(events.send(AppEvent::PaneDied { pane_id })) {
+                if let Err(e) = rt.block_on(events.send(AppEvent::PaneDied {
+                    pane_id,
+                    exit_reason,
+                })) {
                     error!(pane = pane_id.raw(), err = %e, "failed to send PaneDied event");
                 }
             });
@@ -3076,6 +3099,10 @@ impl PaneRuntime {
         self.terminal.visible_hyperlinks(area)
     }
 
+    pub(crate) fn kitty_graphics_may_have_placements(&self) -> bool {
+        self.terminal.kitty_graphics_may_have_placements()
+    }
+
     pub fn kitty_image_placements_with_data_filter<F>(
         &self,
         needs_data: F,
@@ -3112,8 +3139,10 @@ impl PaneRuntime {
         text: Bytes,
         enter: Bytes,
         delay: std::time::Duration,
+        deadline: Option<std::time::Instant>,
     ) -> std::io::Result<std::sync::mpsc::Receiver<std::io::Result<()>>> {
-        self.io.queue_user_input_submission(text, enter, delay)
+        self.io
+            .queue_user_input_submission(text, enter, delay, deadline)
     }
 
     pub fn try_send_paste(&self, text: String) -> Result<(), mpsc::error::TrySendError<Bytes>> {
@@ -3121,6 +3150,7 @@ impl PaneRuntime {
     }
 
     fn paste_payload(&self, text: String) -> Bytes {
+        let text = crate::platform::prepare_paste_text_for_pty(text);
         let bracketed = self.bracketed_paste_enabled();
         let payload = if bracketed {
             format!("\x1b[200~{text}\x1b[201~")

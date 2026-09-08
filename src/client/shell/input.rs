@@ -58,6 +58,24 @@ fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHos
     }
 }
 
+fn push_host_theme_update(
+    requests: &mut Vec<ClientMessage>,
+    update: crate::protocol::ClientHostThemeUpdate,
+) {
+    if let crate::protocol::ClientHostThemeUpdate::PaletteColors(colors) = &update {
+        if let Some(ClientMessage::ClientShellHostTheme {
+            update: crate::protocol::ClientHostThemeUpdate::PaletteColors(pending),
+        }) = requests.last_mut()
+        {
+            if pending.len() + colors.len() <= 256 {
+                pending.extend_from_slice(colors);
+                return;
+            }
+        }
+    }
+    requests.push(ClientMessage::ClientShellHostTheme { update });
+}
+
 impl ClientShellState {
     pub(crate) fn host_keyboard_report_all_requested(&self) -> bool {
         matches!(
@@ -142,9 +160,7 @@ impl ClientShellState {
         }
         for event in events {
             if let Some(update) = host_theme_update(&event) {
-                outcome
-                    .requests
-                    .push(ClientMessage::ClientShellHostTheme { update });
+                push_host_theme_update(&mut outcome.requests, update);
             }
             match event {
                 RawInputEvent::Key(key) => self.handle_key(key, &mut outcome),
@@ -220,6 +236,9 @@ impl ClientShellState {
                     self.outer_focused = Some(true);
                     outcome.query_host_appearance = true;
                     outcome.repaint |= self.config.redraw_on_focus_gained;
+                    if let Some(surface) = self.pane_surface.clone() {
+                        outcome.repaint |= self.acknowledge_active_surface_agents(&surface);
+                    }
                     outcome
                         .requests
                         .push(ClientMessage::ClientShellFocus { focused: true });
@@ -504,7 +523,7 @@ impl ClientShellState {
                 .as_ref()
                 .is_some_and(crate::selection::Selection::is_visible)
         {
-            self.request_selection_copy_with_fallback(outcome, Some(key.clone()));
+            self.request_selection_copy(outcome, true);
             self.selection = None;
             self.stop_selection_autoscroll();
             self.selection_highlight_clear_deadline = None;
@@ -782,39 +801,7 @@ impl ClientShellState {
     ) {
         use crate::input::{KeybindAction, KeybindMatch};
 
-        let indexed_target_exists = match &binding {
-            KeybindMatch::Action(KeybindAction::SwitchWorkspace(index)) => {
-                self.snapshot.as_deref().is_some_and(|snapshot| {
-                    self.navigation_workspace_entries(snapshot)
-                        .get(*index)
-                        .is_some()
-                })
-            }
-            KeybindMatch::Action(KeybindAction::SwitchTab(index)) => self
-                .snapshot
-                .as_deref()
-                .and_then(|snapshot| {
-                    let workspace_id = snapshot.focused_workspace_id.as_deref()?;
-                    snapshot
-                        .tabs
-                        .iter()
-                        .filter(|tab| tab.workspace_id == workspace_id)
-                        .nth(*index)
-                })
-                .is_some(),
-            KeybindMatch::Action(KeybindAction::FocusAgent(index)) => {
-                self.snapshot.as_deref().is_some_and(|snapshot| {
-                    super::agent_sidebar::ordered_agent_pane_ids(
-                        snapshot,
-                        self.config.agent_panel_sort,
-                    )
-                    .get(*index)
-                    .is_some()
-                })
-            }
-            _ => true,
-        };
-        if !indexed_target_exists {
+        if !self.indexed_navigation_target_exists(&binding) {
             return;
         }
 
@@ -835,6 +822,44 @@ impl ClientShellState {
             self.navigate_workspace_id = None;
         }
         outcome.repaint = true;
+    }
+
+    pub(super) fn indexed_navigation_target_exists(
+        &self,
+        binding: &crate::input::KeybindMatch,
+    ) -> bool {
+        use crate::input::{KeybindAction, KeybindMatch};
+
+        match binding {
+            KeybindMatch::Action(KeybindAction::SwitchWorkspace(index)) => {
+                self.snapshot.as_deref().is_some_and(|snapshot| {
+                    self.navigation_workspace_entries(snapshot)
+                        .get(*index)
+                        .is_some()
+                })
+            }
+            KeybindMatch::Action(KeybindAction::SwitchTab(index)) => self
+                .snapshot
+                .as_deref()
+                .and_then(|snapshot| {
+                    let workspace_id = snapshot.focused_workspace_id.as_deref()?;
+                    snapshot
+                        .tabs
+                        .iter()
+                        .filter(|tab| tab.workspace_id == workspace_id)
+                        .nth(*index)
+                })
+                .is_some(),
+            KeybindMatch::Action(KeybindAction::FocusAgent(index)) => {
+                super::aggregate_navigation::online_agent_targets(
+                    &self.endpoints,
+                    self.config.agent_panel_sort,
+                )
+                .get(*index)
+                .is_some()
+            }
+            _ => true,
+        }
     }
 
     fn move_navigate_workspace(&mut self, delta: isize) {
