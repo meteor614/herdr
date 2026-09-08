@@ -215,6 +215,7 @@ fn surface(boot_id: &str, revision: u64, pane: &str) -> crate::protocol::PaneSur
             },
             scrollbar_rect: None,
             scroll: None,
+            floating: false,
             focused: true,
             mouse_reporting: false,
             sgr_pixel_mouse: false,

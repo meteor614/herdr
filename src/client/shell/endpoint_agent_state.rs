@@ -172,6 +172,7 @@ mod tests {
                 inner_rect: rect,
                 scrollbar_rect: None,
                 scroll: None,
+                floating: false,
                 focused: true,
                 mouse_reporting: false,
                 sgr_pixel_mouse: false,

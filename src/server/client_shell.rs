@@ -468,7 +468,7 @@ fn composite_floating_panes(
         return (Vec::new(), None);
     }
     let focused_floating = workspace.floating.focused;
-    let borders_enabled = app.state.pane_borders;
+    let borders_enabled = app.state.pane_borders.draws_borders();
     let accent = app.state.palette.accent;
     let overlay = app.state.palette.overlay0;
 
